@@ -1,1 +1,1 @@
-web:sh setup.sh && run interactive-recordlinkage-tool
+web:sh setup.sh && run interactive_app.py
