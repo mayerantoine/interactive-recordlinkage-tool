@@ -1,0 +1,1 @@
+web:sh setup.sh && run interactive-recordlinkage-tool
