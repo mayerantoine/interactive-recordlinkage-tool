@@ -1,1 +1,1 @@
-web:sh setup.sh && run interactive_app.py
+web:sh setup.sh && straamlit run interactive_app.py
