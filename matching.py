@@ -22,7 +22,7 @@ def timefn(fn):
         t1 = time.time()
         result = fn(*args, **kwargs)
         t2 = time.time()
-        print ("@timefn:" + fn.__name__ + " took " + str(t2 - t1) + " seconds")
+        logging.info("@timefn:" + fn.__name__ + " took " + str(t2 - t1) + " seconds")
         return result
     return measure_time
 
@@ -117,6 +117,23 @@ def kmeans_classifier(features):
     matches = kmeans.fit_predict(features)
     
     return matches
+    
+@st.cache
+def logreg_classifier(features,links_true,train_size = 0.2):
+    logreg = rl.LogisticRegressionClassifier()
+    golden_match_index = features.index & links_true.index
+    train_index = int(len(features)*train_size)
+    #train model
+    logreg.fit(features[0:train_index], golden_match_index)
+
+    # Predict the match status for all record pairs
+    matches = logreg.predict(features)
+    
+    df_logreg_prob = pd.DataFrame(logreg.prob(features))
+    df_logreg_prob.columns = ['score']
+    
+    return matches, df_logreg_prob
+    
     
 
 

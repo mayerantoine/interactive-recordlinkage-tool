@@ -16,7 +16,7 @@ import matching
 _compare_vartype = ['exact','string']
 _compare_string_method = ['jarowinkler','jaro','levenshtein']
 _phonetic_encoding = ['metaphone','soundex']
-_classifiers = ['SimSum','ECM']
+_classifiers = ['SimSum','ECM','Logistic Regression']
 
        
 from functools import wraps
@@ -309,7 +309,7 @@ def show_ui_leaderboard(app_results,option_classifiers,is_gold_standard):
                     st.write(unique_data[:1000])
                     st.markdown(get_table_download_link(unique_data,""),unsafe_allow_html=True)
  
-@timefn    
+  
 def run_app():   
     
     logging.info("start running app....")
@@ -398,6 +398,11 @@ def run_app():
                                     matches,decision_proba = matching.simSum(features,threshold)
                                 elif select_classifier == 'ECM' :
                                     matches,decision_proba  = matching.em_classifier(features)
+                                elif select_classifier == 'Logistic Regression':
+                                    matches, decision_proba = matching.logreg_classifier(features,df_true_links,0.2)
+                                elif select_classifier == 'KMeans':
+                                    pass
+                                    #matches,decision_proba  = matching.kmeans_classifier(features)
                                 else:
                                     pass
                                 
