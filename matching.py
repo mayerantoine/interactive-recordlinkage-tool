@@ -140,6 +140,8 @@ def kmeans_classifier(features):
     
     return matches
 
+##FIXME Fix ML classifiers to accept train/test split
+
 @st.cache
 def logreg_classifier(features,links_true,train_size = 0.2,cv=None):
     logreg = rl.LogisticRegressionClassifier()

@@ -127,6 +127,7 @@ def show_ui_blocking(cols):
     
     blocking_selected = st.selectbox("Select blocking algorithm:",_blocking,key="_blocking_alg")
     
+    #FIXME Catch error when blokcing fields empty
     if (blocking_selected == "Standard"):
         number_blocks = st.number_input("Number of predicates:",1) + 1
         options = [st.empty() for i in range(1,number_blocks)]
@@ -469,11 +470,11 @@ def run_app():
                                 elif select_classifier == 'ECM' :
                                     matches,decision_proba  = matching.em_classifier(features)
                                 elif select_classifier == 'Logistic Regression':
-                                    matches, decision_proba = matching.logreg_classifier(features,df_true_links,train_size=0.2,cv=5)
+                                    matches, decision_proba = matching.logreg_classifier(features,df_true_links,train_size=0.2,cv=10)
                                 elif select_classifier == "Weighted Average" :
                                     matches,decision_proba = matching.weighted_average_classifier(threshold_wavg,features,select_wf)
                                 elif select_classifier == "Naive Bayes":
-                                    matches,decision_proba = matching.nb_classifier(features,df_true_links,train_size=0.2,cv=None)
+                                    matches,decision_proba = matching.nb_classifier(features,df_true_links,train_size=0.2,cv=10)
                                 elif select_classifier == "Support Vector Machine":
                                     matches,decision_proba = matching.svm_classifier(features,df_true_links,train_size=0.2,cv=10)
                                 else:
