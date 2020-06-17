@@ -76,11 +76,25 @@ class Comparator():
 
 @timefn
 @st.cache
-def run_blocking(df_a,blocks):
+def run_blocking(df_a, blocks,blocking ="Standard"):
+    
     logging.info("running  blocking ....")      
     df_a = df_a.copy()
-    indexer = BlockUnion(block_on= blocks)
-    candidate_pairs  = indexer.index(df_a)
+
+    if (blocking == 'Standard'):
+        indexer = BlockUnion(block_on= blocks)
+        candidate_pairs  = indexer.index(df_a)
+    if (blocking == "Full Indexing"):
+        indexer = rl.Index()
+        indexer.full()
+        candidate_pairs  = indexer.index(df_a)
+    elif(blocking == 'SortedNeighbourhood'):
+        key = 'given_name'
+        indexer = SortedNeighbourhood(key,window=3)
+        candidate_pairs  = indexer.index(df_a)
+    else:
+        indexer = BlockUnion(block_on= blocks)
+        candidate_pairs  = indexer.index(df_a)
     
     return candidate_pairs
 
@@ -199,6 +213,7 @@ def svm_classifier(features,links_true,train_size = 0.2,cv=None):
         df_svm = cross_val_predict(svm,features,links_true,cv,method='decision_function')
     
     return matches, df_svm
+
 
 @st.cache
 def weighted_average_classifier(threshold,comparison_vectors,weight_factor):

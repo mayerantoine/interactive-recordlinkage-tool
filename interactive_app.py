@@ -10,12 +10,13 @@ from recordlinkage.preprocessing import clean,phonetic
 import cProfile
 import base64
 import logging
-
+from metaphone import doublemetaphone
 import matching
 
-_compare_vartype = ['exact','string']
-_compare_string_method = ['jarowinkler','jaro','levenshtein']
-_phonetic_encoding = ['metaphone','soundex']
+_compare_vartype = ['exact','string','numeric']
+_compare_string_method = ['jarowinkler','jaro','levenshtein', 'damerau_levenshtein', 'qgram','cosine']
+_phonetic_encoding = ['metaphone','double metaphone','soundex','nysiis','match_rating']
+_blocking = ['Full Indexing','Standard','SortedNeighbourhood']
 _classifiers = ['SimSum','Weighted Average','ECM','Logistic Regression','Naive Bayes','Support Vector Machine']
 
        
@@ -103,29 +104,39 @@ def show_ui_phonetic_encoding(df_a,index_name):
 @st.cache(allow_output_mutation= True)
 def run_phonetic_encoding(df_a,select_encoding):
     logging.info("run phonetic encoding ....")      
+    df_a_processed = df_a.copy()
     
     #FIXME Errors when selecting non string columns like soc_sec_id
-    
+    #TODO Include double metaphone in Python Toolkit
     for field,encoding in select_encoding.items():
-        df_a[encoding+"_"+field]= phonetic(clean(df_a[field]),method=encoding)
+        if (encoding =='double metaphone'):
+             df_a_processed[encoding+"_"+field] = df_a[field].apply(lambda x: doublemetaphone(str(x))[0] if(np.all(pd.notnull(x))) else x)
+        else:
+         df_a_processed[encoding+"_"+field]= phonetic(clean(df_a[field]),method=encoding)
     
-    cols = df_a.columns.to_list()      
-    
-    return df_a, cols
+    cols = df_a_processed.columns.to_list()      
+
+    return df_a_processed, cols
 
 
 @timefn
-def show_ui_blocking( cols):
+def show_ui_blocking(cols):
     logging.info("UI- show_ui_blocking...")
     st.markdown("---") 
     st.header('Step 4 -Now, please configure the blocking strategy you want ')
-    number_blocks = st.number_input("Number of predicates:",1) + 1
-    options = [st.empty() for i in range(1,number_blocks)]
-    options_cols =[[]  for i in enumerate(options)]
-    for i,opt in enumerate(options):
-       options_cols[i] = st.multiselect('Select blocking fields',cols,cols[:2],key="options"+str(i))
     
-    return options_cols
+    blocking_selected = st.selectbox("Select blocking algorithm:",_blocking,key="_blocking_alg")
+    
+    if (blocking_selected == "Standard"):
+        number_blocks = st.number_input("Number of predicates:",1) + 1
+        options = [st.empty() for i in range(1,number_blocks)]
+        options_cols =[[]  for i in enumerate(options)]
+        for i,opt in enumerate(options):
+            options_cols[i] = st.multiselect('Select blocking fields',cols,cols[:2],key="options"+str(i))
+    else:
+        options_cols = []
+            
+    return options_cols,blocking_selected
 
 
 def show_ui_comparison(cols,_compare_vartype,_compare_string_method):
@@ -245,12 +256,10 @@ def get_table_download_link(df,data_name):
     
     return href
    
-                                                              
-@timefn                     
-def show_ui_leaderboard(app_results,option_classifiers,is_gold_standard):
-    logging.info("UI- show_ui_leaderboard...")
-    st.markdown("---")   
-     
+
+def run_metrics(app_results,option_classifiers,is_gold_standard):
+    logging.info("Run metrics..")
+    
     df_a = app_results['data'] 
 
     features = app_results['comparison_vector']
@@ -261,7 +270,7 @@ def show_ui_leaderboard(app_results,option_classifiers,is_gold_standard):
         df_true_links = app_results['df_true_links']
  
     results_dict = {}
- 
+    
     # For each classifier calculate metrics in results_dict
     for i , select_classifier in enumerate(option_classifiers):
         matches = app_results[select_classifier]['matches']
@@ -282,22 +291,61 @@ def show_ui_leaderboard(app_results,option_classifiers,is_gold_standard):
             results_dict[select_classifier]['matrix'] = rl.confusion_matrix(df_true_links,matches,len(features))
             results_dict[select_classifier]['roc'] = matching.show_roc_curve(df_true_links,decision_proba)
             results_dict[select_classifier]['pr'] = matching.show_precision_recall_curve(df_true_links,decision_proba)
+            
+    return results_dict
+                                                              
+@timefn                     
+def show_ui_leaderboard(app_results,results_dict,option_classifiers,is_gold_standard):
+    logging.info("UI- show_ui_leaderboard...")
+     
+    df_a = app_results['data'] 
+
+    features = app_results['comparison_vector']
+    index_name = app_results['index_name']
+    if is_gold_standard :
+        index_name_1 = app_results['index_name_1']
+        index_name_2 = app_results['index_name_2']
+        df_true_links = app_results['df_true_links']
     
-    # For each classifier display results                                                 
-    for classifier, results in results_dict.items():
-        st.markdown("## "+classifier)
-        st.markdown("___")
-        
+    # For each classifier display results    
+    df_leaderboard = pd.DataFrame()                                             
+    for classifier, results in results_dict.items():       
         if  not is_gold_standard :
             unique_data = results['unique']['data_unique']
             nunique = results['metrics']['nunique']
             st.write("Number of unique records : "+ str(nunique))
-            #st.write("Number of duplicate records : "+ str(len(matches)))
             st.write(unique_data)
             st.markdown(get_table_download_link(unique_data,""),unsafe_allow_html=True)
         else:    
-            st.table(pd.DataFrame(results_dict[classifier]['metrics'],index=['metrics']) )          
+            df_leaderboard = pd.concat([df_leaderboard,pd.DataFrame(results_dict[classifier]['metrics'],index=[classifier])])      
+    
+    st.table(df_leaderboard)        
             
+
+def show_ui_dashboard(app_results,results_dict,option_classifiers,is_gold_standard):
+    logging.info("UI- show_ui_dashboard...")
+       
+    df_a = app_results['data'] 
+
+    features = app_results['comparison_vector']
+    index_name = app_results['index_name']
+    if is_gold_standard :
+        index_name_1 = app_results['index_name_1']
+        index_name_2 = app_results['index_name_2']
+        df_true_links = app_results['df_true_links']
+    
+    # For each classifier display results                                                 
+    for classifier, results in results_dict.items():
+        st.markdown("## "+classifier)
+         
+        if  not is_gold_standard :
+            unique_data = results['unique']['data_unique']
+            nunique = results['metrics']['nunique']
+            st.write("Number of unique records : "+ str(nunique))
+            st.write(unique_data)
+            st.markdown(get_table_download_link(unique_data,""),unsafe_allow_html=True)
+        else:      
+
             if st.checkbox("Show details",key="leader_details"+classifier):
                 
                 st.markdown("### Confusion matrix")
@@ -330,8 +378,8 @@ def show_ui_leaderboard(app_results,option_classifiers,is_gold_standard):
                     unique_data = results['unique']['data_unique']
                     st.write(unique_data[:1000])
                     st.markdown(get_table_download_link(unique_data,""),unsafe_allow_html=True)
-  
-  
+                    
+                    
 def run_app():   
     
     logging.info("start running app....")
@@ -385,10 +433,10 @@ def run_app():
                 
           
                 # Blocking  
-                options_cols = show_ui_blocking(cols)
+                options_cols,blocking_selected = show_ui_blocking(cols)
                 
                 if st.checkbox("Run Indexing"):
-                    candidate_pairs = matching.run_blocking(df_a,options_cols)
+                    candidate_pairs = matching.run_blocking(df_a,options_cols,blocking_selected)
                     st.markdown('**'+str(len(candidate_pairs))+'** pairs')
                 
                     # Comparison
@@ -436,10 +484,17 @@ def run_app():
                                 app_results[select_classifier]['matches'] = matches
                                 app_results[select_classifier]['decision_proba'] = decision_proba        
                             
-                    
-                            if st.checkbox("Show Leaderboard"):
-                                st.markdown('## Leaderboard')
-                                show_ui_leaderboard(app_results,option_classifiers,is_gold_standard)
+                            st.markdown("---")
+                            st.header('Step 7 -  Evaluation')
+                            if st.checkbox("Run metrics"):
+                                results_dict = run_metrics(app_results,option_classifiers,is_gold_standard)
+                            
+                                if st.checkbox("Show Leaderboard"):
+                                    st.markdown('## Leaderboard')
+                                    show_ui_leaderboard(app_results,results_dict,option_classifiers,is_gold_standard)
+                                if st.checkbox("Show Metrics Dashboard"):
+                                    show_ui_dashboard(app_results,results_dict,option_classifiers,is_gold_standard)
+        
         logging.info("end running app....")                              
 
 
