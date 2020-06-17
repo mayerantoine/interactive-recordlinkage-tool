@@ -9,11 +9,14 @@ from recordlinkage.base import BaseIndexAlgorithm
 from recordlinkage.index import Block,SortedNeighbourhood
 from recordlinkage.compare import Exact, String, Numeric, Geographic, Date
 from sklearn.metrics import roc_curve, auc,precision_recall_curve
+from sklearn.model_selection import KFold,StratifiedKFold
 import logging
 
 import uuid
+import copy
 
-from functools import wraps
+
+from functools import wraps,reduce
 import time
 
 def timefn(fn):
@@ -49,6 +52,7 @@ class BlockUnion(BaseIndexAlgorithm):
           
         return  indexer.index(df_a)
 
+
 class Comparator():
     
     def __init__(self,compare_on = None, **kwargs):
@@ -72,7 +76,7 @@ class Comparator():
 
 @timefn
 @st.cache
-def _blocking(df_a,blocks):
+def run_blocking(df_a,blocks):
     logging.info("running  blocking ....")      
     df_a = df_a.copy()
     indexer = BlockUnion(block_on= blocks)
@@ -82,15 +86,13 @@ def _blocking(df_a,blocks):
 
 @timefn
 @st.cache
-def _comparison(df_a,candidate_pairs,comparison):
+def run_comparison(df_a,candidate_pairs,comparison):
     logging.info("running comparison....")      
     df_a = df_a.copy()
     compare_cl = Comparator(compare_on = comparison)
     features = compare_cl.compute_compare(candidate_pairs, df_a) 
      
     return features    
-
-
 
 
 @st.cache
@@ -103,6 +105,11 @@ def simSum(features, threshold):
     return matches.index, df_f['score']
 
 @st.cache
+def  exact_matching_classifier(candidate_pairs):
+    """     Exact deterministic matching      """
+    return candidate_pairs
+
+@st.cache
 def em_classifier(features):
     ecm  = rl.ECMClassifier(binarize=0.85)
     matches  = ecm.fit_predict(features)
@@ -111,32 +118,157 @@ def em_classifier(features):
     df_ecm_prob.columns = ['score']
     return matches,df_ecm_prob
 
+
 @st.cache
 def kmeans_classifier(features):
     kmeans = rl.KMeansClassifier()
     matches = kmeans.fit_predict(features)
     
     return matches
-    
-@st.cache
-def logreg_classifier(features,links_true,train_size = 0.2):
-    logreg = rl.LogisticRegressionClassifier()
-    golden_match_index = features.index & links_true.index
-    train_index = int(len(features)*train_size)
-    #train model
-    logreg.fit(features[0:train_index], golden_match_index)
 
-    # Predict the match status for all record pairs
-    matches = logreg.predict(features)
+@st.cache
+def logreg_classifier(features,links_true,train_size = 0.2,cv=None):
+    logreg = rl.LogisticRegressionClassifier()
     
-    df_logreg_prob = pd.DataFrame(logreg.prob(features))
-    df_logreg_prob.columns = ['score']
+    if cv is None:
+        golden_match_index = features.index & links_true.index
+        train_index = int(len(features)*train_size)
+        #train model
+        logging.info("train index:",str(train_index))
+        logreg.fit(features[0:train_index], golden_match_index)
+
+        # Predict the match status for all record pairs
+        matches = logreg.predict(features)
+        
+        df_logreg_prob = pd.DataFrame(logreg.prob(features))
+        df_logreg_prob.columns = ['score']
+    else :
+        df_results = cross_val_predict(logreg,features,links_true,cv,method='predict')
+        matches = df_results.index
+        df_logreg_prob = cross_val_predict(logreg,features,links_true,cv,method='predict_proba')
     
     return matches, df_logreg_prob
+
+@st.cache
+def nb_classifier(features,links_true,train_size = 0.2,cv=None):
+    nb = rl.NaiveBayesClassifier(binarize=0.3)
+    print(features)
+    print(len(features))
+    ##FIXME train_size check should be greater than 0  less than 1
+    if cv is None:
+        golden_match_index = features.index & links_true.index
+        train_index = int(len(features)*train_size)
+        print(train_index)
+        #train model
+        logging.info("train index:",str(train_index))
+        nb.fit(features[0:train_index], golden_match_index)
+
+        # Predict the match status for all record pairs
+        matches = nb.predict(features)
+        
+        df_nb = pd.DataFrame(nb.prob(features))
+        df_nb.columns = ['score']
+    else :
+        df_results = cross_val_predict(nb,features,links_true,cv,method='predict')
+        matches = df_results.index
+        df_nb = cross_val_predict(nb,features,links_true,cv,method='predict_proba')
     
-    
+    return matches, df_nb
 
 
+@st.cache
+def svm_classifier(features,links_true,train_size = 0.2,cv=None):
+    svm = rl.SVMClassifier()
+    
+    ##FIXME train_size check should be greater than 0  less than 1
+    if cv is None:
+        golden_match_index = features.index & links_true.index
+        train_index = int(len(features)*train_size)
+        #train model
+        logging.info("train index:",str(train_index))
+        svm.fit(features[0:train_index], golden_match_index)
+
+        # Predict the match status for all record pairs
+        matches = svm.predict(features)
+        
+        df_svm = pd.DataFrame(svm.kernel.decision_function(features))
+        df_svm.columns = ['score']
+    else :
+        df_results = cross_val_predict(svm,features,links_true,cv,method='predict')
+        matches = df_results.index
+        df_svm = cross_val_predict(svm,features,links_true,cv,method='decision_function')
+    
+    return matches, df_svm
+
+@st.cache
+def weighted_average_classifier(threshold,comparison_vectors,weight_factor):
+    """  Weighted average matching  """
+    
+    
+    ##FIXME we need to check if field match weight factor
+    logging.info("Threshold : %s", threshold)
+    logging.info("number of rows: %s",len(comparison_vectors))
+    
+    df_score = comparison_vectors.copy()
+    weighted_list =[]
+    factor_sum = 0        
+    for field,wf in weight_factor.items():
+        logging.info("Fields weight: %s",wf)
+        weighted_list.append(df_score[field]*int(wf))
+        factor_sum += wf
+    weighted_sum = reduce(lambda x, y: x.add(y, fill_value=0), weighted_list)
+    df_score['score'] = weighted_sum/factor_sum
+    
+    logging.info("number of rows df_score: %s",df_score['score'])
+    matches = df_score[df_score['score'] >=threshold]
+    
+    logging.info("number of matches WA: %s",len(matches))
+    
+    return matches.index , matches['score']         
+ 
+ 
+@st.cache
+def cross_val_predict(classifier,comparison_vector,link_true,cv = 5 , method ='predict'):
+        skfolds = StratifiedKFold(n_splits = cv)
+        
+        y = pd.Series(0, index=comparison_vector.index)
+        y.loc[link_true.index & comparison_vector.index] = 1
+        
+        X_train = comparison_vector.values
+        y_train = y.values
+        
+        results = pd.DataFrame()
+        for train_index, test_index in skfolds.split(X_train,y_train):
+            #clone_clf = clone(classifier)
+            classifier_copy = copy.deepcopy(classifier)
+            X_train_folds = comparison_vector.iloc[train_index]  #X_train[train_index]
+            X_test_folds  = comparison_vector.iloc[test_index]  #X_train[test_index]
+            y_train_folds = X_train_folds.index &  link_true.index #y_train[train_index]
+            y_test_folds = X_test_folds.index & link_true.index
+
+            # Train the classifier
+            #print(y_train_folds.shape)
+            classifier_copy.fit(X_train_folds, y_train_folds)
+
+            # predict matches for the test
+            #print(X_test_folds)
+            
+            if(method == 'predict'):
+                y_pred = classifier_copy.predict(X_test_folds)
+                results = pd.concat([results,y_pred.to_frame()])
+            elif(method == 'predict_proba'):
+                predict_proba = pd.DataFrame(classifier_copy.prob(X_test_folds))
+                predict_proba.columns = ['score']
+                results = pd.concat([results,predict_proba])
+            elif(method == 'decision_function'):
+                decision_match = classifier_copy.kernel.decision_function(X_test_folds.values)
+                decision = pd.Series(decision_match,index = X_test_folds.index)
+                df_decision = pd.DataFrame(decision)
+                results = pd.concat([results,df_decision])
+
+        return results 
+   
+    
 @timefn
 def metrics(links_true,links_pred,pairs):
     if len(links_pred) > 0 :
@@ -154,6 +286,7 @@ def metrics(links_true,links_pred,pairs):
         return {'pairs':len(pairs),'#duplicates':len(links_pred),'precision':precision, 'recall':recall,'fscore':fscore}
     else :
         return {'pairs':0,'#duplicates':0,'precision':0, 'recall':0,'fscore':0}
+
 
 def show_roc_curve(df_true_links,features):
     df_features_score = features.copy()
@@ -173,6 +306,7 @@ def show_roc_curve(df_true_links,features):
                 ).interactive()
    
     return c
+  
                 
 def show_precision_recall_curve(df_true_links,features):
     df_features_score = features.copy()

@@ -16,7 +16,7 @@ import matching
 _compare_vartype = ['exact','string']
 _compare_string_method = ['jarowinkler','jaro','levenshtein']
 _phonetic_encoding = ['metaphone','soundex']
-_classifiers = ['SimSum','ECM','Logistic Regression']
+_classifiers = ['SimSum','Weighted Average','ECM','Logistic Regression','Naive Bayes','Support Vector Machine']
 
        
 from functools import wraps
@@ -32,6 +32,7 @@ def timefn(fn):
         return result
     return measure_time
 
+
 @timefn
 @st.cache(allow_output_mutation=True)
 def load_data(file_name):
@@ -43,8 +44,9 @@ def load_data(file_name):
     else:   
         st.error("File not found")
         return
+ 
     
-st.cache(allow_output_mutation=True)
+@st.cache(allow_output_mutation=True)
 def load_data_gold_standard(filename,is_gold_standard):
     
     if is_gold_standard :
@@ -95,18 +97,22 @@ def show_ui_phonetic_encoding(df_a,index_name):
             select_encoding[c] = ph_selected
     
     return select_encoding
+ 
        
 @timefn             
 @st.cache(allow_output_mutation= True)
 def run_phonetic_encoding(df_a,select_encoding):
     logging.info("run phonetic encoding ....")      
-         
+    
+    #FIXME Errors when selecting non string columns like soc_sec_id
+    
     for field,encoding in select_encoding.items():
         df_a[encoding+"_"+field]= phonetic(clean(df_a[field]),method=encoding)
     
     cols = df_a.columns.to_list()      
     
     return df_a, cols
+
 
 @timefn
 def show_ui_blocking( cols):
@@ -129,6 +135,7 @@ def show_ui_comparison(cols,_compare_vartype,_compare_string_method):
     list_checkbox_fields = [st.empty for i in range(1,len(cols))]
     select_fields ={}
     comparison = []
+    logging.info("Comparison cols: %s", cols)
     for i, col in enumerate(cols):
         item = {}
         if st.checkbox(cols[i]):
@@ -144,12 +151,14 @@ def show_ui_comparison(cols,_compare_vartype,_compare_string_method):
             item['code'] = col
             comparison.append(item)
             st.markdown("---")
-        if len(comparison) == 0 :
-            comparison.append({'vartype':'exact','field': cols[0],'code':cols[0]})
-            comparison.append({'vartype':'exact','field': cols[1],'code':cols[1]})
+    if len(comparison) == 0 :
+        comparison.append({'vartype':'exact','field': cols[0],'code':cols[0]})
+        comparison.append({'vartype':'exact','field': cols[1],'code':cols[1]})
     
+    logging.info("Comparison config: %s", comparison)
     return comparison         
-    
+
+  
 @timefn    
 def show_ui_import_data():
     st.header("Step 1- Let's **begin** with the dataset you want to deduplicate :")
@@ -157,7 +166,6 @@ def show_ui_import_data():
     
     return uploaded_file
     
-
 
 
 def show_ui_import_gold_standard(): 
@@ -176,7 +184,6 @@ def show_ui_import_gold_standard():
             return None,is_gold_standard
     else:
         return None, is_gold_standard
-
 
 
 @timefn
@@ -200,20 +207,31 @@ def show_ui_set_index_true_links(cols_true,is_gold_standard):
     else:
         return None, None
 
-
-
-def show_ui_classification(features):
+@timefn
+def show_ui_classification(features,df_a):
     st.markdown("---")
     st.header('Step 6 -  Classification')
     option_classifiers = []
     threshold = 1
+    threshold_wavg = 1
+    select_wf= {}
     for i , classifier in enumerate(_classifiers):
         if st.checkbox(classifier) :
             option_classifiers.append(classifier)
             if classifier == 'SimSum' :
                 threshold = st.slider("Threshold :",1,len(features.columns)+1)
-                
-    return option_classifiers, threshold
+            elif classifier == "Weighted Average":
+                threshold_wavg = st.number_input("Threshold",min_value=0.1,max_value=0.999,key="threshold_wf")
+                cols = features.columns.to_list()
+                logging.info("features cols %s:",cols)
+                st.write("Select attributes weights:")
+                for i,c in enumerate(cols):
+                    if st.checkbox(c,key="wf_check_"+c+str(i)) :
+                        wf_selected = st.number_input("weight :",value =1,key="wf_"+c)
+                        select_wf[c] = wf_selected
+                    else:
+                        select_wf[c] = 1
+    return option_classifiers, threshold,threshold_wavg,select_wf
 
 
 def get_table_download_link(df,data_name):
@@ -226,6 +244,7 @@ def get_table_download_link(df,data_name):
     href = f'<a href="data:file/csv;base64,{b64}">Download {data_name} as csv file</a>'
     
     return href
+   
                                                               
 @timefn                     
 def show_ui_leaderboard(app_results,option_classifiers,is_gold_standard):
@@ -243,6 +262,7 @@ def show_ui_leaderboard(app_results,option_classifiers,is_gold_standard):
  
     results_dict = {}
  
+    # For each classifier calculate metrics in results_dict
     for i , select_classifier in enumerate(option_classifiers):
         matches = app_results[select_classifier]['matches']
         decision_proba = app_results[select_classifier]['decision_proba']
@@ -255,13 +275,15 @@ def show_ui_leaderboard(app_results,option_classifiers,is_gold_standard):
         results_dict[select_classifier]['metrics']  = {}
         results_dict[select_classifier]['metrics']['nunique'] = results_dict[select_classifier]['unique']['nunique']    
         
+        ##FIXME Can we separate metrics calculation from UI render
         if is_gold_standard :
             results_dict[select_classifier]['unique'] = matching.get_unique(df_a,matches,index_name,index_name_1,index_name_2)
             results_dict[select_classifier]['metrics'] =  matching.metrics(df_true_links,matches,features)    
             results_dict[select_classifier]['matrix'] = rl.confusion_matrix(df_true_links,matches,len(features))
             results_dict[select_classifier]['roc'] = matching.show_roc_curve(df_true_links,decision_proba)
             results_dict[select_classifier]['pr'] = matching.show_precision_recall_curve(df_true_links,decision_proba)
-                                                        
+    
+    # For each classifier display results                                                 
     for classifier, results in results_dict.items():
         st.markdown("## "+classifier)
         st.markdown("___")
@@ -308,7 +330,7 @@ def show_ui_leaderboard(app_results,option_classifiers,is_gold_standard):
                     unique_data = results['unique']['data_unique']
                     st.write(unique_data[:1000])
                     st.markdown(get_table_download_link(unique_data,""),unsafe_allow_html=True)
- 
+  
   
 def run_app():   
     
@@ -366,17 +388,17 @@ def run_app():
                 options_cols = show_ui_blocking(cols)
                 
                 if st.checkbox("Run Indexing"):
-                    candidate_pairs = matching._blocking(df_a,options_cols)
+                    candidate_pairs = matching.run_blocking(df_a,options_cols)
                     st.markdown('**'+str(len(candidate_pairs))+'** pairs')
                 
                     # Comparison
                     comparison = show_ui_comparison(cols,_compare_vartype,_compare_string_method)
         
                     if st.checkbox("Run Comparison"):
-                        features = matching._comparison(df_a,candidate_pairs,comparison)
+                        features = matching.run_comparison(df_a,candidate_pairs,comparison)
                         
                         # UI Classification 
-                        option_classifiers, threshold = show_ui_classification(features)               
+                        option_classifiers, threshold,threshold_wavg,select_wf = show_ui_classification(features,df_a)               
             
                         if st.checkbox('Run Classification') : 
                             # classification
@@ -399,10 +421,13 @@ def run_app():
                                 elif select_classifier == 'ECM' :
                                     matches,decision_proba  = matching.em_classifier(features)
                                 elif select_classifier == 'Logistic Regression':
-                                    matches, decision_proba = matching.logreg_classifier(features,df_true_links,0.2)
-                                elif select_classifier == 'KMeans':
-                                    pass
-                                    #matches,decision_proba  = matching.kmeans_classifier(features)
+                                    matches, decision_proba = matching.logreg_classifier(features,df_true_links,train_size=0.2,cv=5)
+                                elif select_classifier == "Weighted Average" :
+                                    matches,decision_proba = matching.weighted_average_classifier(threshold_wavg,features,select_wf)
+                                elif select_classifier == "Naive Bayes":
+                                    matches,decision_proba = matching.nb_classifier(features,df_true_links,train_size=0.2,cv=None)
+                                elif select_classifier == "Support Vector Machine":
+                                    matches,decision_proba = matching.svm_classifier(features,df_true_links,train_size=0.2,cv=10)
                                 else:
                                     pass
                                 
@@ -417,6 +442,7 @@ def run_app():
                                 show_ui_leaderboard(app_results,option_classifiers,is_gold_standard)
         logging.info("end running app....")                              
 
+
 def main():
     logging.basicConfig(level=logging.INFO)
     st.sidebar.title("Menu")       
@@ -427,8 +453,8 @@ def main():
         st.title("App Instructions")
     elif(app_mode == "Run Deduplication"):
         run_app()
-
-                
+ 
+             
 if __name__ == "__main__":
     main()
 
