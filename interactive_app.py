@@ -3,7 +3,7 @@ import streamlit as st
 import recordlinkage as rl
 import pandas as pd 
 import numpy as np 
-
+import os
 from os import path
 import altair as alt
 from recordlinkage.preprocessing import clean,phonetic
@@ -12,10 +12,11 @@ import base64
 import logging
 from metaphone import doublemetaphone
 import matching
+from PIL import Image
 
 _compare_vartype = ['exact','string','numeric']
 _compare_string_method = ['jarowinkler','jaro','levenshtein', 'damerau_levenshtein', 'qgram','cosine']
-_phonetic_encoding = ['metaphone','double metaphone','soundex','nysiis','match_rating']
+_phonetic_encoding = ['metaphone','double_metaphone','soundex','nysiis','match_rating']
 _blocking = ['Full Indexing','Standard','SortedNeighbourhood']
 _classifiers = ['SimSum','Weighted Average','ECM','Logistic Regression','Naive Bayes','Support Vector Machine']
 
@@ -29,7 +30,7 @@ def timefn(fn):
         t1 = time.time()
         result = fn(*args, **kwargs)
         t2 = time.time()
-        print ("@timefn:" + fn.__name__ + " took " + str(t2 - t1) + " seconds")
+        logging.info("@timefn: %s took  %s  seconds",fn.__name__,str(t2 - t1))
         return result
     return measure_time
 
@@ -92,6 +93,11 @@ def show_ui_phonetic_encoding(df_a,index_name):
     encoding_cols = list(cols)
   
     st.header("Step 3- Tell us the Pre-processing or Encoding you want on each field")
+    st.info(""" 
+             The main task of data cleaning and standardization is the conversion of the raw input data into well defined, consistent forms, as well as the resolution of inconsistencies 
+             in the way information is represented and encoded.(Christen 2012)
+             
+             """)
     for i,c in enumerate(encoding_cols):
         if st.checkbox(c,key="ppp_check"+c) :
             ph_selected = st.selectbox("phonetic encoding:",_phonetic_encoding,key='phonetic_'+c)
@@ -109,7 +115,7 @@ def run_phonetic_encoding(df_a,select_encoding):
     #FIXME Errors when selecting non string columns like soc_sec_id
     #TODO Include double metaphone in Python Toolkit
     for field,encoding in select_encoding.items():
-        if (encoding =='double metaphone'):
+        if (encoding =='double_metaphone'):
              df_a_processed[encoding+"_"+field] = df_a[field].apply(lambda x: doublemetaphone(str(x))[0] if(np.all(pd.notnull(x))) else x)
         else:
          df_a_processed[encoding+"_"+field]= phonetic(clean(df_a[field]),method=encoding)
@@ -123,8 +129,12 @@ def run_phonetic_encoding(df_a,select_encoding):
 def show_ui_blocking(cols):
     logging.info("UI- show_ui_blocking...")
     st.markdown("---") 
-    st.header('Step 4 -Now, please configure the blocking strategy you want ')
-    
+    st.header('Step 4 -Now, please configure the **blocking strategy** you want ')
+    st.info(""" 
+            The step of the process called blocking or indexing try to reduce the number of records we need to compare.
+             The idea is instead of comparing all records of the dataset between themselves we want 
+            to compare only the records that are most likely to be matched.
+            """)
     blocking_selected = st.selectbox("Select blocking algorithm:",_blocking,key="_blocking_alg")
     
     #FIXME Catch error when blokcing fields empty
@@ -143,11 +153,14 @@ def show_ui_blocking(cols):
 def show_ui_comparison(cols,_compare_vartype,_compare_string_method):
     logging.info("UI- show_ui_comparison...")
     st.markdown("---")
-    st.header('Step 5 - Comparison')
+    st.header('Step 5 - Next, please configure the **comparison strategy** you want to apply')
+    st.info(""" 
+            In this step you select the similarity algorihtm and calculate
+             the similarity score between records pairs to create a comparison vectors 
+            """)
     list_checkbox_fields = [st.empty for i in range(1,len(cols))]
     select_fields ={}
     comparison = []
-    logging.info("Comparison cols: %s", cols)
     for i, col in enumerate(cols):
         item = {}
         if st.checkbox(cols[i]):
@@ -167,7 +180,6 @@ def show_ui_comparison(cols,_compare_vartype,_compare_string_method):
         comparison.append({'vartype':'exact','field': cols[0],'code':cols[0]})
         comparison.append({'vartype':'exact','field': cols[1],'code':cols[1]})
     
-    logging.info("Comparison config: %s", comparison)
     return comparison         
 
   
@@ -183,8 +195,10 @@ def show_ui_import_data():
 def show_ui_import_gold_standard(): 
     st.markdown("---")
     st.header("Step 2- Do you have a **gold standard** for this dataset ?")
-    st.info("##### In order to asses the quality of the different matching strategies ground-thruth data , "
-                    "known as gold standard are required")
+    st.info("""
+            In order to asses the quality of the different matching strategies ground-thruth data , 
+                    known as gold standard or labled data are required
+            """)
     is_gold_standard = True if st.radio("Check Yes or No if you have a gold standard ?",("Yes","No"))  == "Yes" else False
         
     if(is_gold_standard) :
@@ -223,6 +237,10 @@ def show_ui_set_index_true_links(cols_true,is_gold_standard):
 def show_ui_classification(features,df_a):
     st.markdown("---")
     st.header('Step 6 -  Classification')
+    st.info(""" 
+            Based on comparison vector, this step uses a classification algorithm to
+            classify candidate records pairs in: matches and non-matches.
+            """)
     option_classifiers = []
     threshold = 1
     threshold_wavg = 1
@@ -257,9 +275,9 @@ def get_table_download_link(df,data_name):
     
     return href
    
-
+@timefn
 def run_metrics(app_results,option_classifiers,is_gold_standard):
-    logging.info("Run metrics..")
+    logging.info("Running metrics..")
     
     df_a = app_results['data'] 
 
@@ -383,8 +401,8 @@ def show_ui_dashboard(app_results,results_dict,option_classifiers,is_gold_standa
                     
 def run_app():   
     
-    logging.info("start running app....")
-    st.title("Interactive Record Linkage Toolkit")
+    logging.info("running app....")
+    st.title("Interactive Record Linkage Tool")
         
     # UI Import data
     uploaded_file = show_ui_import_data()    
@@ -400,6 +418,7 @@ def run_app():
                 # Show data to deduplicate
             st.markdown("### First 5 rows of imported data")
             st.write(df_a.head())
+            st.write("Total number of records :", len(df_a))
             
             # gold stardard
             uploaded_file_true_links,is_gold_standard = show_ui_import_gold_standard()
@@ -487,6 +506,10 @@ def run_app():
                             
                             st.markdown("---")
                             st.header('Step 7 -  Evaluation')
+                            st.info(""" 
+                                    Comparing match results with the known ground truth or gold standard 
+                                    to measure the performance of the matching process.
+                                    """)
                             if st.checkbox("Run metrics"):
                                 results_dict = run_metrics(app_results,option_classifiers,is_gold_standard)
                             
@@ -500,13 +523,55 @@ def run_app():
 
 
 def main():
-    logging.basicConfig(level=logging.INFO)
+    """Main function of the App"""    
+    logging.basicConfig(level=logging.INFO,
+                        format='%(levelname)s: %(asctime)s %(message)s', 
+                        datefmt='%m/%d/%Y %I:%M:%S %p')
+    
+    logging.info("Start...")
     st.sidebar.title("Menu")       
-    app_mode = st.sidebar.selectbox("Please select a page", ["Show Instructions",
+    app_mode = st.sidebar.selectbox("Please select a page", ["Home",
+                                                            "Instructions and Guide",
                                                              "Run Deduplication"])
     app_results = {}
-    if(app_mode == 'Show Instructions'):
-        st.title("App Instructions")
+    if(app_mode == 'Home'):
+        st.title("Interactive Record Linkage Tool")
+        st.write("""
+                 [Interactive Record Linkage Toolkit](https://github.com/mayerantoine/interactive-recordlinkage-tool) is a tool to experiment 
+                 and automatically compare matching quality of different data matching algorithm.
+                 This is a prototype  developed using Python and [Streamlit](https://streamlit.io/).
+                 
+                 This tool is built on top of [Python Record Linkage Toolkit](https://github.com/J535D165/recordlinkage). 
+                 
+                 This application aspiring goals are to provide :
+                  - An interactive way to deduplicate your dataset data whitout coding
+                  - A guided and rigorous pair-wise record linkage  steps-by-step process as implemented in the [Python Record Linkage Toolkit](https://github.com/J535D165/recordlinkage)
+                  - An intuitive interface to compare the effectiveness of different matching algorithm
+                  
+                For now , the use case and focus of the tool is on **patient demographic data matching**.
+
+                 """)
+    elif(app_mode == "Instructions and Guide"):
+        st.title("Instructions and Guide")
+        st.header("What is patient matching?")
+        st.write(""" 
+                 * Data matching : The process to identify records that refer to the same real-world entity within one or across several databases.
+                    * When applied on one database, this process is called **deduplication**.
+                    * Also known as entity resolution, object identification, duplicate detection.
+                 
+                 **Patient matching** : Comparing data from multiple sources to identify records that represent the same patient.
+                 """)
+        st.header("Patient matching process (deduplication)")
+        st.write("""
+                 * Record linkage is a complex process and requires the user to understand, up to a certain degree, many technical details.
+                 * The process consists of 5 steps : **Pre-processing, Indexing/Blocking, Comparison, Classification, Evaluation**
+                 * It is important to understand the process because each step influence the matching results
+                 * For example understanding blocking strategy is crucial because affecting performance and matching results
+                                
+                  """)
+       
+        image = Image.open('matching_process_dedup.PNG')
+        st.image(image, caption="record linkage", use_column_width = True)
     elif(app_mode == "Run Deduplication"):
         run_app()
  

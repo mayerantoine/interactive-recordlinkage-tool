@@ -25,7 +25,7 @@ def timefn(fn):
         t1 = time.time()
         result = fn(*args, **kwargs)
         t2 = time.time()
-        logging.info("@timefn:" + fn.__name__ + " took " + str(t2 - t1) + " seconds")
+        logging.info("@timefn: %s took  %s  seconds",fn.__name__,str(t2 - t1))
         return result
     return measure_time
 
@@ -150,7 +150,6 @@ def logreg_classifier(features,links_true,train_size = 0.2,cv=None):
         golden_match_index = features.index & links_true.index
         train_index = int(len(features)*train_size)
         #train model
-        logging.info("train index:",str(train_index))
         logreg.fit(features[0:train_index], golden_match_index)
 
         # Predict the match status for all record pairs
@@ -176,7 +175,6 @@ def nb_classifier(features,links_true,train_size = 0.2,cv=None):
         train_index = int(len(features)*train_size)
         print(train_index)
         #train model
-        logging.info("train index:",str(train_index))
         nb.fit(features[0:train_index], golden_match_index)
 
         # Predict the match status for all record pairs
@@ -201,7 +199,6 @@ def svm_classifier(features,links_true,train_size = 0.2,cv=None):
         golden_match_index = features.index & links_true.index
         train_index = int(len(features)*train_size)
         #train model
-        logging.info("train index:",str(train_index))
         svm.fit(features[0:train_index], golden_match_index)
 
         # Predict the match status for all record pairs
@@ -223,23 +220,18 @@ def weighted_average_classifier(threshold,comparison_vectors,weight_factor):
     
     
     ##FIXME we need to check if field match weight factor
-    logging.info("Threshold : %s", threshold)
-    logging.info("number of rows: %s",len(comparison_vectors))
     
     df_score = comparison_vectors.copy()
     weighted_list =[]
     factor_sum = 0        
     for field,wf in weight_factor.items():
-        logging.info("Fields weight: %s",wf)
         weighted_list.append(df_score[field]*int(wf))
         factor_sum += wf
     weighted_sum = reduce(lambda x, y: x.add(y, fill_value=0), weighted_list)
     df_score['score'] = weighted_sum/factor_sum
     
-    logging.info("number of rows df_score: %s",df_score['score'])
     matches = df_score[df_score['score'] >=threshold]
     
-    logging.info("number of matches WA: %s",len(matches))
     
     return matches.index , matches['score']         
  
