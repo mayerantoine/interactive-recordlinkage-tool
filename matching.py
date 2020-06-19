@@ -328,8 +328,8 @@ def show_precision_recall_curve(df_true_links,features):
     data = pd.DataFrame({'precision':precision,'recall':recall})
     
     c = alt.Chart(data).mark_line().encode(
-                x='precision',
-                y='recall'
+                x='recall',
+                y='precision'
             ).properties(
                 title='Precision-Recall'
                 ).interactive()
