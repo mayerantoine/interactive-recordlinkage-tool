@@ -18,8 +18,8 @@ _compare_vartype = ['exact','string','numeric']
 _compare_string_method = ['jarowinkler','jaro','levenshtein', 'damerau_levenshtein', 'qgram','cosine']
 _phonetic_encoding = ['metaphone','double_metaphone','soundex','nysiis','match_rating']
 _blocking = ['Full Indexing','Standard','SortedNeighbourhood']
-_classifiers = ['SimSum','Weighted Average','ECM','Logistic Regression','Naive Bayes','Support Vector Machine']
-
+_all_classifiers = ['SimSum','Weighted Average','ECM','Logistic Regression','Naive Bayes','Support Vector Machine']
+_non_supervised_classifiers =  ['SimSum','Weighted Average','ECM']
        
 from functools import wraps
 import time
@@ -234,7 +234,7 @@ def show_ui_set_index_true_links(cols_true,is_gold_standard):
         return None, None
 
 @timefn
-def show_ui_classification(features,df_a):
+def show_ui_classification(features,df_a,list_classifiers):
     st.markdown("---")
     st.header('Step 6 -  Classification')
     st.info(""" 
@@ -245,7 +245,7 @@ def show_ui_classification(features,df_a):
     threshold = 1
     threshold_wavg = 1
     select_wf= {}
-    for i , classifier in enumerate(_classifiers):
+    for i , classifier in enumerate(list_classifiers):
         if st.checkbox(classifier) :
             option_classifiers.append(classifier)
             if classifier == 'SimSum' :
@@ -328,8 +328,10 @@ def show_ui_leaderboard(app_results,results_dict,option_classifiers,is_gold_stan
     
     # For each classifier display results    
     df_leaderboard = pd.DataFrame()                                             
-    for classifier, results in results_dict.items():       
+    for classifier, results in results_dict.items():  
+  
         if  not is_gold_standard :
+            st.markdown("### "+classifier)    
             unique_data = results['unique']['data_unique']
             nunique = results['metrics']['nunique']
             st.write("Number of unique records : "+ str(nunique))
@@ -338,7 +340,8 @@ def show_ui_leaderboard(app_results,results_dict,option_classifiers,is_gold_stan
         else:    
             df_leaderboard = pd.concat([df_leaderboard,pd.DataFrame(results_dict[classifier]['metrics'],index=[classifier])])      
     
-    st.table(df_leaderboard)        
+    if is_gold_standard :
+        st.table(df_leaderboard)        
             
 
 def show_ui_dashboard(app_results,results_dict,option_classifiers,is_gold_standard):
@@ -355,17 +358,13 @@ def show_ui_dashboard(app_results,results_dict,option_classifiers,is_gold_standa
     
     # For each classifier display results                                                 
     for classifier, results in results_dict.items():
-        st.markdown("## "+classifier)
+        #st.markdown("### "+classifier)
          
         if  not is_gold_standard :
-            unique_data = results['unique']['data_unique']
-            nunique = results['metrics']['nunique']
-            st.write("Number of unique records : "+ str(nunique))
-            st.write(unique_data)
-            st.markdown(get_table_download_link(unique_data,""),unsafe_allow_html=True)
+            pass
         else:      
 
-            if st.checkbox("Show details",key="leader_details"+classifier):
+            if st.checkbox(classifier,key="leader_details"+classifier):
                 
                 st.markdown("### Confusion matrix")
                 matrix = pd.DataFrame(results['matrix'], columns=['Predicted Positives','Predicted Negatives'],index = ['True Positives','True Negatives'])
@@ -449,7 +448,11 @@ def run_app():
             # Set phonetic encoding
             selected_encoding = show_ui_phonetic_encoding(df_a,index_name)
             if st.checkbox("Run Pre-processing") :
-                df_a, cols = run_phonetic_encoding(df_a,selected_encoding)
+                try:
+                     df_a, cols = run_phonetic_encoding(df_a,selected_encoding)
+                except AttributeError as error:
+                    st.error("Cannot convert attribute type. Please select another field.")
+               
                 
           
                 # Blocking  
@@ -466,7 +469,10 @@ def run_app():
                         features = matching.run_comparison(df_a,candidate_pairs,comparison)
                         
                         # UI Classification 
-                        option_classifiers, threshold,threshold_wavg,select_wf = show_ui_classification(features,df_a)               
+                        if is_gold_standard:
+                            option_classifiers, threshold,threshold_wavg,select_wf = show_ui_classification(features,df_a,_all_classifiers)  
+                        else:
+                            option_classifiers, threshold,threshold_wavg,select_wf = show_ui_classification(features,df_a,_non_supervised_classifiers)              
             
                         if st.checkbox('Run Classification') : 
                             # classification
@@ -516,8 +522,10 @@ def run_app():
                                 if st.checkbox("Show Leaderboard"):
                                     st.markdown('## Leaderboard')
                                     show_ui_leaderboard(app_results,results_dict,option_classifiers,is_gold_standard)
-                                if st.checkbox("Show Metrics Dashboard"):
-                                    show_ui_dashboard(app_results,results_dict,option_classifiers,is_gold_standard)
+                                
+                                if is_gold_standard :
+                                    if st.checkbox("Show Metrics Dashboard"):
+                                        show_ui_dashboard(app_results,results_dict,option_classifiers,is_gold_standard)
         
         logging.info("end running app....")                              
 
@@ -539,7 +547,7 @@ def main():
         st.write("""
                  [Interactive Record Linkage Toolkit](https://github.com/mayerantoine/interactive-recordlinkage-tool) is a tool to experiment 
                  and automatically compare matching quality of different data matching algorithm.
-                 This is a prototype  developed using Python and [Streamlit](https://streamlit.io/).
+                 This is a proof of concept  developed using Python and [Streamlit](https://streamlit.io/).
                  
                  This tool is built on top of [Python Record Linkage Toolkit](https://github.com/J535D165/recordlinkage). 
                  

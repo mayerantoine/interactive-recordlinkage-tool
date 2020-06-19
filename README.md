@@ -1,6 +1,6 @@
 # interactive-recordlinkage-tool
 
-Interactive tool to experiment and automatically compare matching quality of different data matching algorithm. This is a prototype  developed using Python and Streamlit.
+Interactive tool to experiment and automatically compare matching quality of different data matching algorithm. This is a proof of concept  developed using Python and Streamlit.
 
 This tool is built on top of [Python Record Linkage Toolkit](https://github.com/J535D165/recordlinkage). 
 
