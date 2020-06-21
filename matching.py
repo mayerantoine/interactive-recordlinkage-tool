@@ -4,30 +4,22 @@ import pandas as pd
 import numpy as np 
 import altair as alt
 
+from recordlinkage.preprocessing import clean,phonetic
 from recordlinkage.index import Block
 from recordlinkage.base import BaseIndexAlgorithm
 from recordlinkage.index import Block,SortedNeighbourhood
 from recordlinkage.compare import Exact, String, Numeric, Geographic, Date
 from sklearn.metrics import roc_curve, auc,precision_recall_curve
 from sklearn.model_selection import KFold,StratifiedKFold
-import logging
+from metaphone import doublemetaphone
 
+import logging
 import uuid
 import copy
+from utils import timefn
+from functools import reduce
 
 
-from functools import wraps,reduce
-import time
-
-def timefn(fn):
-    @wraps(fn)
-    def measure_time(*args, **kwargs):
-        t1 = time.time()
-        result = fn(*args, **kwargs)
-        t2 = time.time()
-        logging.info("@timefn: %s took  %s  seconds",fn.__name__,str(t2 - t1))
-        return result
-    return measure_time
 
 class BlockUnion(BaseIndexAlgorithm):
     def __init__(self,block_on = None, **kwargs):
@@ -74,6 +66,25 @@ class Comparator():
         return vartype,field,method, threshold, code
 
 
+@timefn             
+@st.cache(allow_output_mutation= True)
+def run_phonetic_encoding(df_a,select_encoding):
+    logging.info("run phonetic encoding ....")      
+    df_a_processed = df_a.copy()
+    
+    #FIXME Errors when selecting non string columns like soc_sec_id
+    #TODO Include double metaphone in Python Toolkit
+    for field,encoding in select_encoding.items():
+        if (encoding =='double_metaphone'):
+             df_a_processed[encoding+"_"+field] = df_a[field].apply(lambda x: doublemetaphone(str(x))[0] if(np.all(pd.notnull(x))) else x)
+        else:
+         df_a_processed[encoding+"_"+field]= phonetic(clean(df_a[field]),method=encoding)
+    
+    cols = df_a_processed.columns.to_list()      
+
+    return df_a_processed, cols
+
+
 @timefn
 @st.cache
 def run_blocking(df_a, blocks,blocking ="Standard"):
@@ -97,6 +108,7 @@ def run_blocking(df_a, blocks,blocking ="Standard"):
         candidate_pairs  = indexer.index(df_a)
     
     return candidate_pairs
+
 
 @timefn
 @st.cache
@@ -122,6 +134,7 @@ def simSum(features, threshold):
 def  exact_matching_classifier(candidate_pairs):
     """     Exact deterministic matching      """
     return candidate_pairs
+
 
 @st.cache
 def em_classifier(features):
@@ -296,7 +309,45 @@ def metrics(links_true,links_pred,pairs):
     else :
         return {'pairs':0,'#duplicates':0,'precision':0, 'recall':0,'fscore':0}
 
+@timefn
+def run_metrics(app_results,option_classifiers,is_gold_standard):
+    logging.info("Running metrics..")
+    
+    df_a = app_results['data'] 
 
+    features = app_results['comparison_vector']
+    index_name = app_results['index_name']
+    if is_gold_standard :
+        index_name_1 = app_results['index_name_1']
+        index_name_2 = app_results['index_name_2']
+        df_true_links = app_results['df_true_links']
+ 
+    results_dict = {}
+    
+    # For each classifier calculate metrics in results_dict
+    for i , select_classifier in enumerate(option_classifiers):
+        matches = app_results[select_classifier]['matches']
+        decision_proba = app_results[select_classifier]['decision_proba']
+        
+        results_dict[select_classifier] = {}
+        results_dict[select_classifier]['matches'] = matches
+        m = matches.to_frame(index= False).columns.to_list()
+        
+        results_dict[select_classifier]['unique'] = get_unique(df_a,matches,index_name,m[0],m[1])
+        results_dict[select_classifier]['metrics']  = {}
+        results_dict[select_classifier]['metrics']['nunique'] = results_dict[select_classifier]['unique']['nunique']    
+        
+        ##FIXME Can we separate metrics calculation from UI render
+        if is_gold_standard :
+            results_dict[select_classifier]['unique'] = get_unique(df_a,matches,index_name,index_name_1,index_name_2)
+            results_dict[select_classifier]['metrics'] =  metrics(df_true_links,matches,features)    
+            results_dict[select_classifier]['matrix'] = rl.confusion_matrix(df_true_links,matches,len(features))
+            results_dict[select_classifier]['roc'] = show_roc_curve(df_true_links,decision_proba)
+            results_dict[select_classifier]['pr'] = show_precision_recall_curve(df_true_links,decision_proba)
+            
+    return results_dict
+  
+  
 def show_roc_curve(df_true_links,features):
     df_features_score = features.copy()
     #st.text(df_features_score.columns)
