@@ -27,3 +27,6 @@ Run the streamlit app
 ```
 streamlit run interactive_app.py
 ```
+## Demo
+
+![demo](Media1_interactive_rl.gif)
