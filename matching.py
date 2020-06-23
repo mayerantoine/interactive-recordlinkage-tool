@@ -1,3 +1,7 @@
+""" 
+This module includes all record linkage function for matching
+"""
+
 import recordlinkage as rl
 import streamlit as st
 import pandas as pd 
@@ -69,6 +73,8 @@ class Comparator():
 @timefn             
 @st.cache(allow_output_mutation= True)
 def run_phonetic_encoding(df_a,select_encoding):
+    """ Calulate the phonetic encoding of the selected fields """
+    
     logging.info("run phonetic encoding ....")      
     df_a_processed = df_a.copy()
     
@@ -88,6 +94,7 @@ def run_phonetic_encoding(df_a,select_encoding):
 @timefn
 @st.cache
 def run_blocking(df_a, blocks,blocking ="Standard"):
+    """ Run the blocking/indexing based on the blocking parameter """
     
     logging.info("running  blocking ....")      
     df_a = df_a.copy()
@@ -113,6 +120,9 @@ def run_blocking(df_a, blocks,blocking ="Standard"):
 @timefn
 @st.cache
 def run_comparison(df_a,candidate_pairs,comparison):
+    """ Run comparison on the candidate record pairs to
+    calculate similarity metrics 
+    """
     logging.info("running comparison....")      
     df_a = df_a.copy()
     compare_cl = Comparator(compare_on = comparison)
@@ -123,6 +133,7 @@ def run_comparison(df_a,candidate_pairs,comparison):
 
 @st.cache
 def simSum(features, threshold):
+    """ Similarity Sum classifier function """
     df_f = features.copy()
     df_f['score'] = features.sum(axis=1)
     #threshold or score based classification
@@ -148,6 +159,7 @@ def em_classifier(features):
 
 @st.cache
 def kmeans_classifier(features):
+    """ Kmeans classifier """
     kmeans = rl.KMeansClassifier()
     matches = kmeans.fit_predict(features)
     
@@ -157,6 +169,7 @@ def kmeans_classifier(features):
 
 @st.cache
 def logreg_classifier(features,links_true,train_size = 0.2,cv=None):
+    """ Logistic Regression classifier function"""
     logreg = rl.LogisticRegressionClassifier()
     
     if cv is None:
@@ -177,8 +190,11 @@ def logreg_classifier(features,links_true,train_size = 0.2,cv=None):
     
     return matches, df_logreg_prob
 
+
 @st.cache
 def nb_classifier(features,links_true,train_size = 0.2,cv=None):
+    """ Naive Bayes Classifier """    
+
     nb = rl.NaiveBayesClassifier(binarize=0.3)
     print(features)
     print(len(features))
@@ -205,6 +221,7 @@ def nb_classifier(features,links_true,train_size = 0.2,cv=None):
 
 @st.cache
 def svm_classifier(features,links_true,train_size = 0.2,cv=None):
+    """  Support vector machine classifier """
     svm = rl.SVMClassifier()
     
     ##FIXME train_size check should be greater than 0  less than 1
@@ -308,6 +325,7 @@ def metrics(links_true,links_pred,pairs):
         return {'pairs':len(pairs),'#duplicates':len(links_pred),'precision':precision, 'recall':recall,'fscore':fscore}
     else :
         return {'pairs':0,'#duplicates':0,'precision':0, 'recall':0,'fscore':0}
+
 
 @timefn
 def run_metrics(app_results,option_classifiers,is_gold_standard):

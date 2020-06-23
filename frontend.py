@@ -1,3 +1,6 @@
+""" This module includes all streamlit function to display interactive widgets
+"""
+
 import logging
 import streamlit as st
 import base64
@@ -10,7 +13,7 @@ _blocking = ['Full Indexing','Standard','SortedNeighbourhood']
 
 def show_ui_import_data():
     st.header("Step 1- Let's **begin** with the dataset you want to deduplicate :")
-    uploaded_file  = st.file_uploader("Browse and select the file:",type = "csv")
+    uploaded_file  = st.file_uploader("Browse and select the file (only accept CSV file):",type = "csv")
     
     return uploaded_file
 
@@ -34,7 +37,25 @@ def show_ui_set_index_true_links(cols_true,is_gold_standard):
         return index_name_1,index_name_2
     else:
         return None, None
-  
+
+def show_ui_import_gold_standard(): 
+    st.markdown("---")
+    st.header("Step 2- Do you have a **gold standard** for this dataset ?")
+    st.info("""
+            In order to asses the quality of the different matching strategies ground-thruth data , 
+                    known as gold standard or labled data are required
+            """)
+    is_gold_standard = False if st.radio("Check Yes or No if you have a gold standard ?",("No","Yes"))  == "No" else True
+        
+    if(is_gold_standard) :
+        uploaded_true = st.file_uploader("Browse and select the gold standard (Review instructions for the correct format of the gold standard):",type = "csv")
+        
+        if uploaded_true is not None :
+            return uploaded_true,is_gold_standard
+        else:
+            return None,is_gold_standard
+    else:
+        return None, is_gold_standard 
 
 def show_ui_phonetic_encoding(df_a,index_name):
     st.markdown("---")
@@ -112,24 +133,7 @@ def show_ui_comparison(cols,_compare_vartype,_compare_string_method):
     return comparison         
  
 
-def show_ui_import_gold_standard(): 
-    st.markdown("---")
-    st.header("Step 2- Do you have a **gold standard** for this dataset ?")
-    st.info("""
-            In order to asses the quality of the different matching strategies ground-thruth data , 
-                    known as gold standard or labled data are required
-            """)
-    is_gold_standard = True if st.radio("Check Yes or No if you have a gold standard ?",("Yes","No"))  == "Yes" else False
-        
-    if(is_gold_standard) :
-        uploaded_true = st.file_uploader("Browse and select the gold standard (Review instructions for the correct format of the gold standard):",type = "csv")
-        
-        if uploaded_true is not None :
-            return uploaded_true,is_gold_standard
-        else:
-            return None,is_gold_standard
-    else:
-        return None, is_gold_standard
+
 
 
 def show_ui_classification(features,df_a,list_classifiers):
@@ -181,6 +185,7 @@ def show_ui_evaluation():
             Comparing match results with the known ground truth or gold standard 
             to measure the performance of the matching process.
             """)         
+
 
 def show_ui_leaderboard(app_results,results_dict,option_classifiers,is_gold_standard):
     st.markdown('## Leaderboard') 

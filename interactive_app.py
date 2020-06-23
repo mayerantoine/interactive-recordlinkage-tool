@@ -122,9 +122,16 @@ def run_app():
             selected_encoding = frontend.show_ui_phonetic_encoding(df_a,index_name)
             if st.checkbox("Run Pre-processing") :
                 try:
-                     df_a, cols = matching.run_phonetic_encoding(df_a,selected_encoding)
+                    df_a, cols = matching.run_phonetic_encoding(df_a,selected_encoding)
+                    
+                    # Show data to deduplicate
+                    st.markdown("### First 5 rows of pre-processed data")
+                    st.write(df_a.head())
+
                 except AttributeError as error:
                     st.error("Cannot convert attribute type. Please select another field.")
+                    
+                    
                
                 
           
